@@ -103,7 +103,19 @@ bwrite(struct buf *b)
 struct buf* 
 bread_wr(uint dev, uint blockno) {
   // IMPLEMENT YOUR CODE HERE
-  return 0;
+  struct buf *b;
+
+  // Fetch or allocate a buffer for the specified block
+  b = bget(dev, blockno);
+
+  // If the buffer's data hasn't been read from disk, read it
+  if((b->flags & B_VALID) == 0) {
+    iderw(b); // Read the disk block into the buffer
+  }
+
+  memmove(b->old_data, b->data, BSIZE);
+
+  return b;
 }
 
 // Release a buffer.

@@ -71,11 +71,29 @@ install_trans(void)
     if (LOG_FLAG == 5) {
       if (tail == log.lh.n/2) panic("[UNDOLOG] Panic in install_trans type 5");
     }
+    // struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
+    struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
+    // memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
+    bwrite(dbuf);  // write dst to disk
+    // brelse(lbuf); // TODO: remove lbuf here add to other install
+    brelse(dbuf);
+  }
+}
+
+static void
+install_trans_recover_from_log(void)
+{
+  int tail;
+
+  for (tail = 0; tail < log.lh.n; tail++) {
+    if (LOG_FLAG == 5) {
+      if (tail == log.lh.n/2) panic("[UNDOLOG] Panic in install_trans type 5");
+    }
     struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
     struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
     memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
     bwrite(dbuf);  // write dst to disk
-    brelse(lbuf);
+    brelse(lbuf); // TODO: remove lbuf here add to other install
     brelse(dbuf);
   }
 }
@@ -111,11 +129,12 @@ write_head(void)
   brelse(buf);
 }
 
+//todo
 static void
 recover_from_log(void)
 {
   read_head();
-  install_trans(); // if committed, copy from log to disk
+  install_trans_recover_from_log(); // if committed, copy from log to disk
   log.lh.n = 0;
   write_head(); // clear the log
 }
@@ -180,10 +199,18 @@ log_write(struct buf *b)
 
   for (i = 0; i < log.lh.n; i++) {
     if (log.lh.block[i] == b->blockno)   // log absorbtion
-      break;
+      return;
   }
-  log.lh.block[i] = b->blockno;
-  if (i == log.lh.n)
-    log.lh.n++;
+
+  struct buf* logbuf = bread(log.dev, log.start+log.lh.n+1);
+  memmove(logbuf->data, b->old_data, BSIZE);
+  bwrite(logbuf);
+  brelse(logbuf);
+
+  log.lh.block[log.lh.n] = b->blockno;
+  log.lh.n++;
+
   b->flags |= B_DIRTY; // prevent eviction
 }
+
+//change log write, 
