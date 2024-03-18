@@ -11,7 +11,7 @@ We can describe this procedure more formally using the following rules:
 ### Undo Log Rules 
 To write new values `n1`, `n2` to blocks B1, B2:
 
-- Write old values `o1`, `o2` into the log
+- Write old values
 - Start the transaction which writes log header block describing the block numbers of `o1` and `o2`
 - Install the transaction: flush the values `n1` and `n2` to B1, B2 on disk 
 - Commit the transaction by clearing the log

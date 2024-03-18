@@ -113,31 +113,54 @@ pinit(int pol)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
-void
-scheduler(void)
+void scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
   
+  int total_ticks = 0;
+  const int FOREGROUND_QUANTUM = 9;
+  const int BACKGROUND_QUANTUM = 1;
+  
   for(;;){
     // Enable interrupts on this processor.
     sti();
-
+    
+    // Track the number of runnable foreground and background processes
+    int runnable_fg = 0, runnable_bg = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->state == RUNNABLE) {
+        if(p->policy == 0) runnable_fg++;
+        else if(p->policy == 1) runnable_bg++;
+      }
+    }
+    
     // Loop over process table looking for process to run.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
-
-      // Switch to chosen process. 
-      c->proc = p;
-      p->state = RUNNING;
-
-      switchuvm(p);
-      swtch(&(c->scheduler), p->context);
+      
+      // Decide whether to run based on the policy and the current tick count
+      if((p->policy == 0 && (total_ticks % (FOREGROUND_QUANTUM + BACKGROUND_QUANTUM) < FOREGROUND_QUANTUM)) ||
+         (p->policy == 1 && runnable_fg == 0) || // Run background process if no foreground process is runnable
+         (p->policy == 1 && total_ticks % (FOREGROUND_QUANTUM + BACKGROUND_QUANTUM) >= FOREGROUND_QUANTUM)){
+        
+        // Switch to chosen process. 
+        c->proc = p;
+        p->state = RUNNING;
+        
+        switchuvm(p);
+        swtch(&(c->scheduler), p->context);
+        switchkvm();
+        
+        c->proc = 0;
+      }
     }
+    total_ticks++;
   }
 }
+
 
 // Enter scheduler.  Must hold only ptable.lock
 // and have changed proc->state. Saves and restores

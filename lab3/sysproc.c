@@ -11,12 +11,19 @@ int
 sys_set_sched_policy(void)
 {
     // Implement your code here 
-    return -1;
+
+    int policy;
+    if(argint(0, &policy) < 0) // Get the first integer argument passed to the system call
+        return -1; // Return -1 if there was an error fetching the argument
+    if(policy != 0 && policy != 1)
+        return -22; // Return -22 if the policy is neither 0 nor 1
+    myproc()->policy = policy; // Set the current process's policy
+    return 0; // Return 0 on success
 }
 
 int 
 sys_get_sched_policy(void)
 {
-    // Implement your code here 
-    return -1;
+    // Implement your code here
+    return myproc()->policy; // Return the current process's policy 
 }
