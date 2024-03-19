@@ -105,6 +105,7 @@ pinit(int pol)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  p->policy = pol;
 }
 
 // process scheduler.
@@ -115,50 +116,53 @@ pinit(int pol)
 //      via swtch back to the scheduler.
 void scheduler(void)
 {
-  struct proc *p;
-  struct cpu *c = mycpu();
-  c->proc = 0;
-  
-  int total_ticks = 0;
-  const int FOREGROUND_QUANTUM = 9;
-  const int BACKGROUND_QUANTUM = 1;
-  
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
-    
-    // Track the number of runnable foreground and background processes
-    int runnable_fg = 0, runnable_bg = 0;
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state == RUNNABLE) {
-        if(p->policy == 0) runnable_fg++;
-        else if(p->policy == 1) runnable_bg++;
-      }
+    struct proc *fg_proc = 0; // Pointer for the next runnable foreground process
+    struct proc *bg_proc = 0; // Pointer for the next runnable background process
+    struct cpu *c = mycpu();
+    c->proc = 0;
+
+    int total_ticks = 0;
+    const int FOREGROUND_QUANTUM = 9;
+    const int BACKGROUND_QUANTUM = 1;
+
+    for(;;){
+        sti(); // Enable interrupts on this processor.
+        
+        // Reset pointers to null at the start of each scheduling round
+        fg_proc = 0;
+        bg_proc = 0;
+
+        // Search for runnable processes
+        for(struct proc *p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+            if(p->state != RUNNABLE)
+                continue;
+
+            if(p->policy == 0 && fg_proc == 0) { // Check for the first runnable foreground process
+                fg_proc = p;
+            } else if(p->policy == 1 && bg_proc == 0) { // Check for the first runnable background process
+                bg_proc = p;
+            }
+        }
+
+        // Schedule foreground process if available, otherwise schedule background process
+        struct proc *p = fg_proc ? fg_proc : bg_proc;
+
+        while(p && ((p->policy == 0 && (total_ticks % (FOREGROUND_QUANTUM + BACKGROUND_QUANTUM) < FOREGROUND_QUANTUM)) ||
+                   (p->policy == 1 && (total_ticks % (FOREGROUND_QUANTUM + BACKGROUND_QUANTUM) >= FOREGROUND_QUANTUM || !fg_proc)))) {
+            
+            // Switch to chosen process.
+            c->proc = p;
+            p->state = RUNNING;
+
+            switchuvm(p);  // Switch to this process's address space
+            swtch(&(c->scheduler), p->context);  // Context switch to this process
+            
+            c->proc = 0;  // No current process
+            
+            // Update tick count and check again
+            total_ticks++;
+        }
     }
-    
-    // Loop over process table looking for process to run.
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
-      
-      // Decide whether to run based on the policy and the current tick count
-      if((p->policy == 0 && (total_ticks % (FOREGROUND_QUANTUM + BACKGROUND_QUANTUM) < FOREGROUND_QUANTUM)) ||
-         (p->policy == 1 && runnable_fg == 0) || // Run background process if no foreground process is runnable
-         (p->policy == 1 && total_ticks % (FOREGROUND_QUANTUM + BACKGROUND_QUANTUM) >= FOREGROUND_QUANTUM)){
-        
-        // Switch to chosen process. 
-        c->proc = p;
-        p->state = RUNNING;
-        
-        switchuvm(p);
-        swtch(&(c->scheduler), p->context);
-        switchkvm();
-        
-        c->proc = 0;
-      }
-    }
-    total_ticks++;
-  }
 }
 
 

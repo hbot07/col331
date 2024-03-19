@@ -10,8 +10,7 @@
 int 
 sys_set_sched_policy(void)
 {
-    // Implement your code here 
-
+    // Implement your code here
     int policy;
     if(argint(0, &policy) < 0) // Get the first integer argument passed to the system call
         return -1; // Return -1 if there was an error fetching the argument
