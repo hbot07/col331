@@ -6,7 +6,8 @@
 #include "x86.h"
 #include "proc.h"
 
-struct {
+struct
+{
   struct proc proc[NPROC];
 } ptable;
 
@@ -15,22 +16,23 @@ static struct proc *initproc;
 int nextpid = 1;
 extern void trapret(void);
 
-int
-cpuid() {
+int cpuid()
+{
   return 0;
 }
 
 // Must be called with interrupts disabled to avoid the caller being
 // rescheduled between reading lapicid and running through the loop.
-struct cpu*
+struct cpu *
 mycpu(void)
 {
   return &cpus[0];
 }
 
 // Read proc from the cpu structure
-struct proc*
-myproc(void) {
+struct proc *
+myproc(void)
+{
   struct cpu *c = mycpu();
   return c->proc;
 }
@@ -39,14 +41,14 @@ myproc(void) {
 // If found, change state to EMBRYO and initialize
 // state required to run in the kernel.
 // Otherwise return 0.
-static struct proc*
+static struct proc *
 allocproc(void)
 {
   struct proc *p;
   char *sp;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == UNUSED)
+  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if (p->state == UNUSED)
       goto found;
 
   return 0;
@@ -55,23 +57,24 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
 
-  if((p->offset = kalloc()) == 0){
+  if ((p->offset = kalloc()) == 0)
+  {
     p->state = UNUSED;
     return 0;
   }
   p->sz = PGSIZE - KSTACKSIZE;
 
-  sp = (char*)(p->offset + PGSIZE);
+  sp = (char *)(p->offset + PGSIZE);
 
   // Allocate kernel stack.
   p->kstack = sp - KSTACKSIZE;
 
   // Leave room for trap frame.
   sp -= sizeof *p->tf;
-  p->tf = (struct trapframe*)sp;
+  p->tf = (struct trapframe *)sp;
 
   sp -= sizeof *p->context;
-  p->context = (struct context*)sp;
+  p->context = (struct context *)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)trapret;
 
@@ -79,14 +82,13 @@ found:
 }
 
 // Set up first process.
-void
-pinit(int pol)
+void pinit(int pol)
 {
   struct proc *p;
   extern char _binary_initcode_start[], _binary_initcode_size[];
 
   p = allocproc();
-  
+  p->policy = pol;
   initproc = p;
 
   memmove(p->offset, _binary_initcode_start, (int)_binary_initcode_size);
@@ -99,12 +101,11 @@ pinit(int pol)
 
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE - KSTACKSIZE;
-  p->tf->eip = 0;  // beginning of initcode.S
+  p->tf->eip = 0; // beginning of initcode.S
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
-  p->policy = pol;
   p->state = RUNNABLE;
 }
 
@@ -114,83 +115,93 @@ pinit(int pol)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
-void
-scheduler(void)
+void scheduler(void)
 {
-  int fore_bg = 0;
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
-  int fg_present = 0;
-  int bg_present = 0;
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
-    fg_present = 0;
-    bg_present = 0;
-    // Loop over process table looking for process to run.
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
 
-      // Switch to chosen process. 
-      if (p->policy == 0)
-      {
-        fg_present = 1;
-        if (fore_bg != 9 && p->policy == 0)
-        {
-          c->proc = p;
-          p->state = RUNNING;
+  int fore_bg = 0; // tracks ratio of foreground to background process execution.
 
-          switchuvm(p);
-          swtch(&(c->scheduler), p->context);
-          fore_bg = (fore_bg+1)%10;
-        }
-        else
-        {
-          continue;
-        }
-      }
-      else
-      {
-        bg_present = 1;
-        if (p->policy == 1 && fore_bg == 9)
-        {
-          c->proc = p;
-          p->state = RUNNING;
+  struct proc *fg_proc = 0; // Next runnable foreground process
+  struct proc *bg_proc = 0; // Next runnable background process
 
-          switchuvm(p);
-          swtch(&(c->scheduler), p->context);
-          fore_bg = (fore_bg+1)%10;
-        }
-        else
-        {
-          continue;
-        }
-      }
+  int counter = 0;
 
-      // c->proc = p;
-      // p->state = RUNNING;
+  while (1)
+  {
+    sti(); // Enable interrupts on this processor.
 
-
-      // switchuvm(p);
-      // swtch(&(c->scheduler), p->context);
+    if (fg_proc == 0 || fg_proc == &ptable.proc[NPROC]){
+      fg_proc = ptable.proc;
     }
-    if (bg_present == 0)
+    if (bg_proc == 0 || bg_proc == &ptable.proc[NPROC]){
+      bg_proc = ptable.proc;
+    }
+    
+    counter = 0;
+    while(1){
+      if(counter>1){
+        fg_proc = 0;
+        break;
+      }
+      if(fg_proc->state == RUNNABLE && fg_proc->policy == 0){
+        break;
+      }
+      fg_proc++;
+      if(fg_proc == &ptable.proc[NPROC]){
+        fg_proc = ptable.proc;
+        counter++;
+      }
+    }
+
+    counter = 0;
+    while(1){
+      if(counter>1){
+        bg_proc = 0;
+        break;
+      }
+      if(bg_proc->state == RUNNABLE && bg_proc->policy == 1){
+        break;
+      }
+      bg_proc++;
+      if(bg_proc == &ptable.proc[NPROC]){
+        bg_proc = ptable.proc;
+        counter++;
+      }
+    }
+
+    // Now, decide which process to run based on the scheduler's state and the presence of runnable processes
+    if (fore_bg < 9 && fg_proc)
+    { // Prefer foreground processes
+      p = fg_proc;
+      fore_bg++;
+      fg_proc++;
+    }
+    else if (bg_proc)
+    { // Time for a background process or no runnable foreground processes
+      p = bg_proc;
+      fore_bg = 0; // Reset after a background process runs
+      bg_proc++;
+    }
+    else if (fg_proc)
+    { // No background processes ready, but there are runnable foreground ones
+      p = fg_proc;
+      // fore_bg = (fore_bg + 1) % 10;
+      fg_proc++;
+    }
+    else
     {
-      if (fg_present == 1)
-      {
-        fore_bg = 0;
-      }
-      else
-      {
-        fore_bg = 9;
-      }
+      // No runnable processes, so skip scheduling
+      continue;
     }
-    if (fg_present == 0)
-    {
-      fore_bg = 9;
-    }
+
+    // Run the selected process
+    c->proc = p;
+    p->state = RUNNING;
+    switchuvm(p);                       
+    swtch(&(c->scheduler), p->context);
+    c->proc = 0;                        // No current process once switched
   }
 }
 
@@ -201,16 +212,15 @@ scheduler(void)
 // be proc->intena and proc->ncli, but that would
 // break in the few places where a lock is held but
 // there's no process.
-void
-sched(void)
+void sched(void)
 {
   int intena;
-  struct cpu* c = mycpu();
+  struct cpu *c = mycpu();
   struct proc *p = myproc();
 
-  if(p->state == RUNNING)
+  if (p->state == RUNNING)
     panic("sched running");
-  if(readeflags()&FL_IF)
+  if (readeflags() & FL_IF)
     panic("sched interruptible");
   intena = c->intena;
   swtch(&p->context, c->scheduler);
@@ -218,29 +228,28 @@ sched(void)
 }
 
 // Give up the CPU for one scheduling round.
-void
-yield(void)
+void yield(void)
 {
   myproc()->state = RUNNABLE;
   sched();
 }
 
-void
-procdump(void)
+void procdump(void)
 {
   static char *states[] = {
-  [UNUSED]    "unused",
-  [EMBRYO]    "embryo",
-  [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
+      [UNUSED] "unused",
+      [EMBRYO] "embryo",
+      [RUNNABLE] "runble",
+      [RUNNING] "run   ",
   };
   struct proc *p;
   char *state;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->state == UNUSED)
+  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+    if (p->state == UNUSED)
       continue;
-    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
+    if (p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
     else
       state = "???";
